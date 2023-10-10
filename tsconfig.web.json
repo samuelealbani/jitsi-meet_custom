@@ -9,7 +9,7 @@
         "skipLibCheck": true,
         "moduleResolution": "Node",
         "strict": true,
-        "noImplicitAny": true,
+        "noImplicitAny": false,
         "strictPropertyInitialization": false,
         "resolveJsonModule": true,
         "moduleSuffixes": [".web", ""]
