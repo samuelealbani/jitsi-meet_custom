@@ -102,5 +102,10 @@ export async function createVirtualBackgroundEffect(virtualBackground: IBackgrou
         virtualBackground
     };
 
-    return new JitsiStreamBackgroundEffect(tflite, options);
+    let result = new JitsiStreamBackgroundEffect(tflite, options);
+    await result.createFaceLandmarker();
+    console.log("wowo", result);
+
+    return result;
+    // return new JitsiStreamBackgroundEffect(tflite, options);
 }

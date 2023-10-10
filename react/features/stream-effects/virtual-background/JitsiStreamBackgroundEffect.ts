@@ -1,5 +1,9 @@
 import { VIRTUAL_BACKGROUND_TYPE } from '../../virtual-background/constants';
-
+import vision from "@mediapipe/tasks-vision";
+const { FaceLandmarker, FilesetResolver, DrawingUtils } = vision;
+const demosSection = document.getElementById("demos");
+const imageBlendShapes = document.getElementById("image-blend-shapes");
+const videoBlendShapes = document.getElementById("video-blend-shapes");
 import {
     CLEAR_TIMEOUT,
     SET_TIMEOUT,
@@ -36,6 +40,13 @@ export default class JitsiStreamBackgroundEffect {
     _segmentationMaskCanvas: HTMLCanvasElement;
     _virtualImage: HTMLImageElement;
     _virtualVideo: HTMLVideoElement;
+    faceLandmarker:any;
+    enableWebcamButton: boolean;
+   // runningMode: string;
+    webcamRunning: boolean;
+    canvasCtx: CanvasRenderingContext2D;
+    lastVideoTime: number;
+    results: any;
 
     /**
      * Represents a modified video MediaStream track.
@@ -61,7 +72,28 @@ export default class JitsiStreamBackgroundEffect {
         // Workaround for FF issue https://bugzilla.mozilla.org/show_bug.cgi?id=1388974
         this._outputCanvasElement = document.createElement('canvas');
         this._outputCanvasElement.getContext('2d');
+        
         this._inputVideoElement = document.createElement('video');
+        this.faceLandmarker;
+        // this.runningMode = "IMAGE";
+        this.enableWebcamButton;
+        this.webcamRunning = false;
+        this.lastVideoTime = -1;
+        this.results = undefined;
+    }
+
+    async createFaceLandmarker() {
+        const filesetResolver = await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/wasm");
+        this.faceLandmarker = await FaceLandmarker.createFromOptions(filesetResolver, {
+            baseOptions: {
+                modelAssetPath: `https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task`,
+                delegate: "GPU"
+            },
+            outputFaceBlendshapes: true,
+            runningMode: "VIDEO",
+            numFaces: 1
+        });
+        console.log("end createFaceLandmarker", this.faceLandmarker);
     }
 
     /**
@@ -78,12 +110,23 @@ export default class JitsiStreamBackgroundEffect {
     }
 
     /**
+     * PredictWebcam
+     *
+     * @returns {void}
+     */
+    async predictWebcam() {
+
+    }
+
+
+    /**
      * Represents the run post processing.
      *
      * @returns {void}
      */
-    runPostProcessing() {
-
+    async runPostProcessing() {
+        
+        // let drawingUtils = new DrawingUtils(this.canvasCtx);
         const track = this._stream.getVideoTracks()[0];
         const { height, width } = track.getSettings() ?? track.getConstraints();
         const { backgroundType } = this._options.virtualBackground;
@@ -99,42 +142,86 @@ export default class JitsiStreamBackgroundEffect {
         // Draw segmentation mask.
 
         // Smooth out the edges.
-        this._outputCanvasCtx.filter = backgroundType === VIRTUAL_BACKGROUND_TYPE.IMAGE ? 'blur(4px)' : 'blur(8px)';
-        this._outputCanvasCtx?.drawImage( // @ts-ignore
-            this._segmentationMaskCanvas,
-            0,
-            0,
-            this._options.width,
-            this._options.height,
-            0,
-            0,
-            this._inputVideoElement.width,
-            this._inputVideoElement.height
-        );
-        this._outputCanvasCtx.globalCompositeOperation = 'source-in';
-        this._outputCanvasCtx.filter = 'none';
+        // this._outputCanvasCtx.filter = backgroundType === VIRTUAL_BACKGROUND_TYPE.IMAGE ? 'blur(4px)' : 'blur(8px)';
+        // this._outputCanvasCtx?.drawImage( // @ts-ignore
+        //     this._segmentationMaskCanvas,
+        //     0,
+        //     0,
+        //     this._options.width,
+        //     this._options.height,
+        //     0,
+        //     0,
+        //     this._inputVideoElement.width,
+        //     this._inputVideoElement.height
+        // );
+        // this._outputCanvasCtx.globalCompositeOperation = 'source-in';
+        // this._outputCanvasCtx.filter = 'none';
 
         // Draw the foreground video.
         // @ts-ignore
-        this._outputCanvasCtx?.drawImage(this._inputVideoElement, 0, 0);
+        // this._outputCanvasCtx?.drawImage(this._inputVideoElement, 0, 0);
 
         // Draw the background.
         this._outputCanvasCtx.globalCompositeOperation = 'destination-over';
-        if (backgroundType === VIRTUAL_BACKGROUND_TYPE.IMAGE) {
-            this._outputCanvasCtx?.drawImage( // @ts-ignore
-                backgroundType === VIRTUAL_BACKGROUND_TYPE.IMAGE
-                    ? this._virtualImage : this._virtualVideo,
-                0,
-                0,
-                this._outputCanvasElement.width,
-                this._outputCanvasElement.height
-            );
-        } else {
-            this._outputCanvasCtx.filter = `blur(${this._options.virtualBackground.blurValue}px)`;
+        // if (backgroundType === VIRTUAL_BACKGROUND_TYPE.IMAGE) {
+        //     this._outputCanvasCtx?.drawImage( // @ts-ignore
+        //         backgroundType === VIRTUAL_BACKGROUND_TYPE.IMAGE
+        //             ? this._virtualImage : this._virtualVideo,
+        //         0,
+        //         0,
+        //         this._outputCanvasElement.width,
+        //         this._outputCanvasElement.height
+        //     );
+        // } else {
+        //     this._outputCanvasCtx.filter = `blur(${this._options.virtualBackground.blurValue}px)`;
 
-            // @ts-ignore
-            this._outputCanvasCtx?.drawImage(this._inputVideoElement, 0, 0);
+        //     // @ts-ignore
+        //     this._outputCanvasCtx?.drawImage(this._inputVideoElement, 0, 0);
+        // }
+        const radio = this._inputVideoElement.videoHeight / this._inputVideoElement.videoWidth;
+        let startTimeMs = performance.now();
+        if (this.lastVideoTime !== this._inputVideoElement.currentTime) {
+            this.lastVideoTime = this._inputVideoElement.currentTime;
+            this.results = this.faceLandmarker.detectForVideo(this._inputVideoElement, startTimeMs);
         }
+
+        
+        const drawingUtils = new DrawingUtils(this._outputCanvasCtx);
+        console.log(drawingUtils);
+        if (this.results.faceLandmarks) {
+            for (const landmarks of this.results.faceLandmarks) {
+                drawingUtils.drawConnectors(landmarks, FaceLandmarker.FACE_LANDMARKS_TESSELATION, { color: "#C0C0C070", lineWidth: 1 });
+                drawingUtils.drawConnectors(landmarks, FaceLandmarker.FACE_LANDMARKS_RIGHT_EYE, { color: "#FF3030" });
+                drawingUtils.drawConnectors(landmarks, FaceLandmarker.FACE_LANDMARKS_RIGHT_EYEBROW, { color: "#FF3030" });
+                drawingUtils.drawConnectors(landmarks, FaceLandmarker.FACE_LANDMARKS_LEFT_EYE, { color: "#30FF30" });
+                drawingUtils.drawConnectors(landmarks, FaceLandmarker.FACE_LANDMARKS_LEFT_EYEBROW, { color: "#30FF30" });
+                drawingUtils.drawConnectors(landmarks, FaceLandmarker.FACE_LANDMARKS_FACE_OVAL, { color: "#E0E0E0" });
+                drawingUtils.drawConnectors(landmarks, FaceLandmarker.FACE_LANDMARKS_LIPS, { color: "#E0E0E0" });
+                drawingUtils.drawConnectors(landmarks, FaceLandmarker.FACE_LANDMARKS_RIGHT_IRIS, { color: "#FF3030" });
+                drawingUtils.drawConnectors(landmarks, FaceLandmarker.FACE_LANDMARKS_LEFT_IRIS, { color: "#30FF30" });
+            }
+        }
+        // this.drawBlendShapes(videoBlendShapes, this.results.faceBlendshapes);
+
+
+
+    }
+
+    drawBlendShapes(el, blendShapes) {
+        if (!blendShapes.length) {
+            return;
+        }
+        console.log(blendShapes[0]);
+        let htmlMaker = "";
+        blendShapes[0].categories.map((shape) => {
+            htmlMaker += `
+          <li class="blend-shapes-item">
+            <span class="blend-shapes-label">${shape.displayName || shape.categoryName}</span>
+            <span class="blend-shapes-value" style="width: calc(${+shape.score * 100}% - 120px)">${(+shape.score).toFixed(4)}</span>
+          </li>
+        `;
+        });
+        el.innerHTML = htmlMaker;
     }
 
     /**
@@ -162,10 +249,10 @@ export default class JitsiStreamBackgroundEffect {
      * @private
      * @returns {void}
      */
-    _renderMask() {
+    async _renderMask() {
         this.resizeSource();
         this.runInference();
-        this.runPostProcessing();
+        await this.runPostProcessing();
 
         this._maskFrameTimerWorker.postMessage({
             id: SET_TIMEOUT,
